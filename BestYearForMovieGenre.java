@@ -60,7 +60,7 @@ public class BestYearForMovieGenre {
                     // Check if year column is not "\N"
                     if (!cols[5].equals("\\N")) {
                     	// Key Value [year, 0] if the line row is targetType (e.g. movie, short), but not the targetGenre. [year, 1] if row is a movie and is targetGenre
-						// We will not calculate other types and only the targetType.
+			// We will not calculate other types and only the targetType.
                         context.write(new Text(cols[5]), isGenre);
                     }
                 }
@@ -81,9 +81,9 @@ public class BestYearForMovieGenre {
                             break;
                         }
                     }
-                    // Key Value [century, 0] if the line row is targetType (e.g. movie, short), but not the targetGenre. [year, 1] if row is a movie and is targetGenre
-					// We will not calculate other types and only the targetType.
-                    context.write(new Text(targetCentury.toString()), isGenre);
+			// Key Value [year, 0] if the line row is targetType (e.g. movie, short), but not the targetGenre. [year, 1] if row is a movie, is targetGenre and in targetCentury
+			// We will not calculate other types and only the targetType.
+			context.write(new Text(cols[5]), isGenre);
                 }
             }
         }
