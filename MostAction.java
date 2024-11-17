@@ -1,4 +1,8 @@
 import java.io.IOException;
+import java.util.PriorityQueue;
+import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Collections;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
@@ -11,64 +15,42 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class MostAction {
 
-    public static class Map extends Mapper<Object, Text, Text, IntWritable> {
-
+    public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
         private final static IntWritable one = new IntWritable(1);
-        private String targetGenre = null;
-        private String targetType = null;
+        private String targetGenre;
 
         @Override
         protected void setup(Context context) throws IOException, InterruptedException {
-            // Retrieve custom arguments from the job configuration
             Configuration conf = context.getConfiguration();
-            targetGenre = conf.get("targetGenre");
-            targetType = conf.get("targetType");
+            targetGenre = conf.get("targetGenre", "Action");//Default:Action
         }
 
         @Override
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
-            // Convert the input line into a string
             String line = value.toString();
-            String[] cols = line.split(",");
+            String[] cols = line.split("\t");
 
             try {
-                // Check if line has enough columns
-                if (cols.length <= 12) {
-                    return;
-                }
+                //Check if row is movie (could be episode or short...)
+                String titleType = cols[1].trim();
+                if (!titleType.equalsIgnoreCase("movie")) return;
 
-                // Check if row is of the targetType (e.g., "movie")
-                String titleType = cols[2].trim();
-                if (!titleType.equalsIgnoreCase(targetType)) {
-                    return;
-                }
+                if (cols[8].equals("\\N") || cols[8].trim().isEmpty()) return;
 
-                // Check if genres column is not null or empty
-                if (cols[9].equals("\\N") || cols[9].trim().isEmpty()) {
-                    return;
-                }
-
-                // Check if targetGenre is among the genres
-                String[] genres = cols[9].split(",");
+                //Check if movie is of target genre
+                String[] genres = cols[8].split(",");
                 boolean isTargetGenre = false;
                 for (String genre : genres) {
-                    if (genre.trim().equalsIgnoreCase(targetGenre)) {
+                    if (genre.equalsIgnoreCase(targetGenre)) {
                         isTargetGenre = true;
                         break;
                     }
                 }
-                if (!isTargetGenre) {
-                    return;
-                }
+                if (!isTargetGenre) return;
 
-                // Get director IDs and names
-                if (cols[10].equals("\\N") || cols[12].equals("\\N")) {
-                    return;
-                }
-                String[] directorsKey = cols[10].split(",");
-                String[] directors = cols[12].split(",");
-
-                // Ensure both arrays have the same length
+                //Get unique directorID and their name
+                String[] directorsKey = cols[9].split(",");
+                String[] directors = cols[11].split(",");
                 int minLength = Math.min(directorsKey.length, directors.length);
                 for (int i = 0; i < minLength; i++) {
                     String directorId = directorsKey[i].trim();
@@ -79,53 +61,90 @@ public class MostAction {
                         context.write(new Text(keyValue), one);
                     }
                 }
+
             } catch (Exception e) {
                 System.err.println("Error processing line: " + line);
                 e.printStackTrace();
             }
         }
     }
-
-    public static class Reduce extends Reducer<Text, IntWritable, Text, IntWritable> {
-
-        private IntWritable result = new IntWritable();
+    
+    /** Question requires the output to have the top in the file. Output must be sorted
+     * We decided to use a tree mapper, a datastructure that sorts key value pairs, making it a whole lot easier
+     * Key, Value
+     */
+    public static class IntSumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
+        private PriorityQueue<DirectorCount> topDirectors;
+        private int topX;
 
         @Override
-        public void reduce(Text key, Iterable<IntWritable> values, Context context)
-                throws IOException, InterruptedException {
+        protected void setup(Context context) {
+            Configuration conf = context.getConfiguration();
+            this.topX = conf.getInt("topX", 10); //Default: 10
+            topDirectors = new PriorityQueue<>(topX, new Comparator<DirectorCount>() {
+                @Override
+                public int compare(DirectorCount o1, DirectorCount o2) {
+                    return Integer.compare(o1.count, o2.count);
+                }
+            });
+        }
+
+        @Override
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
             int sum = 0;
-            for (IntWritable val : values) {
-                sum += val.get();
+            for (IntWritable val : values) sum += val.get();
+
+            topDirectors.add(new DirectorCount(key.toString(), sum));
+
+            if (topDirectors.size() > topX) {
+                topDirectors.poll();
             }
-            result.set(sum);
-            context.write(key, result);
+        }
+
+        @Override
+        protected void cleanup(Context context) throws IOException, InterruptedException {
+            //Write only the topx directos
+            ArrayList<DirectorCount> directorsList = new ArrayList<>();
+            while (!topDirectors.isEmpty()) {
+                directorsList.add(topDirectors.poll());
+            }
+            Collections.reverse(directorsList);
+            for (DirectorCount dc : directorsList) {
+                context.write(new Text(dc.director), new IntWritable(dc.count));
+            }
+        }
+
+        static class DirectorCount {
+            String director;
+            int count;
+
+            DirectorCount(String director, int count) {
+                this.director = director;
+                this.count = count;
+            }
         }
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
-            System.err.println("Usage: MostAction <input path> <output path> <targetType> <targetGenre>");
+        if (args.length < 4) {
+            System.err.println("Usage: MostAction <input path> <output path> <top X> <genre>");
             System.exit(-1);
         }
 
         Configuration conf = new Configuration();
-        conf.set("targetType", args[2]);
-        conf.set("targetGenre", args[3]);
+        int topX = Integer.parseInt(args[2]);
+        conf.setInt("topX", topX); //Outputs top x directors
+        conf.set("targetGenre", args[3]);//Custom target genre
 
-        Job job = Job.getInstance(conf, "Directors with Most Action Movies");
+        Job job = Job.getInstance(conf, "Most Action Movies");
         job.setJarByClass(MostAction.class);
-        job.setMapperClass(Map.class);
-        job.setCombinerClass(Reduce.class); // Optional combiner
-        job.setReducerClass(Reduce.class);
-
+        job.setMapperClass(TokenizerMapper.class);
+        job.setCombinerClass(IntSumReducer.class);
+        job.setReducerClass(IntSumReducer.class);
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(IntWritable.class);
-
-        // Set input and output paths from command-line arguments
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileOutputFormat.setOutputPath(job, new Path(args[1]));
-
-        // Exit after job completion
         System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
 }
