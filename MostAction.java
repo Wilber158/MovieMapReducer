@@ -33,9 +33,12 @@ public class MostAction {
             try {
                 //Check if row is movie (could be episode or short...)
                 String titleType = cols[1].trim();
-                if (!titleType.equalsIgnoreCase("movie")) return;
-
-                if (cols[8].equals("\\N") || cols[8].trim().isEmpty()) return;
+                if (!titleType.equalsIgnoreCase("movie")){
+                    return;
+                }
+                if (cols[8].equals("\\N") || cols[8].trim().isEmpty()){
+                    return;
+                }
 
                 //Check if movie is of target genre
                 String[] genres = cols[8].split(",");
@@ -46,7 +49,9 @@ public class MostAction {
                         break;
                     }
                 }
-                if (!isTargetGenre) return;
+                if (!isTargetGenre){
+                    return;
+                }
 
                 //Get unique directorID and their name
                 String[] directorsKey = cols[9].split(",");
@@ -70,8 +75,10 @@ public class MostAction {
     }
     
     /** Question requires the output to have the top in the file. Output must be sorted
-     * We decided to use a tree mapper, a datastructure that sorts key value pairs, making it a whole lot easier
-     * Key, Value
+     * We decided to use a priority queue that keeps the topx directors sorted
+     * only these directors will be put in the output file
+     * 
+     * Another option was running another map reduce program to sort....
      */
     public static class IntSumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
         private PriorityQueue<DirectorCount> topDirectors;
