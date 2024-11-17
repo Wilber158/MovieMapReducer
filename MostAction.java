@@ -13,6 +13,8 @@ import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
+
+//Preprocessing such as only including type movie in the dataset was done due to memory contraints
 public class MostAction {
 
     public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
@@ -28,7 +30,7 @@ public class MostAction {
         @Override
         public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
             String line = value.toString();
-            String[] cols = line.split("\t");
+            String[] cols = line.split("\t"); //TSV File
 
             try {
                 //Check if row is movie (could be episode or short...)
