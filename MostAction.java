@@ -56,9 +56,10 @@ public class MostAction {
                 }
 
                 //Get unique directorID and their name
+                //If for some reason there is a mismatch between the amount of keys and the amount of names, this will stop any error
                 String[] directorsKey = cols[9].split(",");
                 String[] directors = cols[11].split(",");
-                int minLength = Math.min(directorsKey.length, directors.length);
+                int minLength = Math.min(directorsKey.length, directors.length);//Here
                 for (int i = 0; i < minLength; i++) {
                     String directorId = directorsKey[i].trim();
                     String directorName = directors[i].trim();
