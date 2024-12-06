@@ -43,56 +43,40 @@ public class BestYearForMovieGenre {
 
         @Override
         public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
-        	// Every time map function gets called, value will be the next row of tsv file.
+            // Every time map function gets called, value will be the next row of tsv file.
             String line = value.toString();
             String[] cols = line.split("\t");
             IntWritable isGenre = zero;
 
-            // If user does not input century in args calculate which year has most genre for type.
-            if (targetCentury == null) {
-            	// If column 8 is not \N then we continue calculation because it has genre. Some types do not. (e.g. tvSeries)
-                if (cols[1].equals(targetType) && !cols[8].equals("\\N")) {
-                	// Some rows can have up to 3 genres and separated by comma.
-                    String[] genres = cols[8].split(",");
-                    
-                    // We look through genres[] to see if it has targetGenre.
-                    for (String genre : genres) {
-                        if (genre.equalsIgnoreCase(targetGenre)) {
-                            isGenre = one;
-                            break;
-                        }
-                    }
-                    // Check if year column is not "\N"
-                    if (!cols[5].equals("\\N")) {
-                    	// Key Value [year, 0] if the line row is targetType (e.g. movie, short), but not the targetGenre. [year, 1] if row is a movie and is targetGenre
-			// We will not calculate other types and only the targetType.
-                        context.write(new Text(cols[5]), isGenre);
-                    }
-                }
-             // If user did enter a century.
-            } else {
-            	// Century to year group calculation. (e.g. 21st century = (21 - 1) * 100 = 2000)
-                Integer century = (targetCentury - 1) * 100;
-                
-                // Check if movie type is the same, has a year, is in the targetCentury, and if genres is not empty.
-                if (cols[1].equals(targetType) && !cols[5].equals("\\N") && Integer.parseInt(cols[5]) >= century && Integer.parseInt(cols[5]) < (targetCentury * 100) && !cols[8].equals("\\N")) {
-                	// Some rows can have up to 3 genres and separated by comma.
-                    String[] genres = cols[8].split(",");
-                    
-                    // We look through them all to see if it has targetGenre.
-                    for (String genre : genres) {
-                        if (genre.equalsIgnoreCase(targetGenre)) {
-                            isGenre = one;
-                            break;
-                        }
-                    }
-			// Key Value [year, 0] if the line row is targetType (e.g. movie, short), but not the targetGenre. [year, 1] if row is a movie, is targetGenre and in targetCentury
-			// We will not calculate other types and only the targetType.
-			context.write(new Text(cols[5]), isGenre);
+            // Check for valid type, year, genres upfront
+            if (!cols[1].equals(targetType) || cols[5].equals("\\N") || cols[8].equals("\\N")) {
+                return; // Invalid row
+            }
+            
+            int year = Integer.parseInt(cols[5]);
+            // Split the 3 possible genres by comma and store them in an array
+            String[] genres = cols[8].split(",");
+        	
+            // If century is provided, ensure the year falls within it
+            if (targetCentury != null) {
+                int centuryStart = (targetCentury - 1) * 100;
+                int centuryEnd = targetCentury * 100;
+                if (year < centuryStart || year >= centuryEnd) {
+                    return; // Year not in the specified century
                 }
             }
-        }
 
+	    // Search through the genres array to check if target genre is present
+            for (String genre : genres) {
+            	if (genre.equalsIgnoreCase(targetGenre)) {
+            		isGenre = one; // Target genre is present
+            	}
+            }
+            
+            // Key Value [year, 0] if the line row is targetType (e.g. movie, short), but not the targetGenre. [year, 1] if row is a movie, is targetGenre and in targetCentury
+            // We will not calculate other types and only the targetType.
+            context.write(new Text(String.valueOf(year)), isGenre);
+        }
     }
 
     public static class Reduce extends Reducer<Text, IntWritable, Text, IntWritable> {
