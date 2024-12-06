@@ -127,7 +127,6 @@ public class BestYearForGenre {
 	    job.setCombinerClass(Reduce.class);
 	    job.setReducerClass(Reduce.class);
 	
-	    // Set the mapper/reducer output classes
 	    job.setMapOutputKeyClass(Text.class);
 	    job.setMapOutputValueClass(IntWritable.class);
 	    job.setOutputKeyClass(Text.class);
@@ -167,8 +166,6 @@ public class BestYearForGenre {
 	        });
 	
 	        // Overwrite the existing file with sorted results
-	        // Note: use `false` in create(...) to overwrite the file
-	        // If needed, delete and recreate instead of append
 	        fs.delete(outputFile, false);
 	        try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fs.create(outputFile)))) {
 	            for (YearCount yc : records) {
