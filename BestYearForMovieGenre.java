@@ -1,14 +1,19 @@
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.Iterator;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.BufferedWriter;
+import java.util.ArrayList; 
+import java.util.Collections; 
+import java.util.Comparator; 
+import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
@@ -102,27 +107,88 @@ public class BestYearForMovieGenre {
     }
 
     public static void main(String[] args) throws Exception {
+	if (args.length < 4) {
+            System.err.println("Usage: hadoop jar yourjarfile.jar BestYearForMovieGenre input output targetType targetGenre [century] [-s or sort]");
+            System.exit(-1);
+        }
+	    
         Configuration conf = new Configuration();
         conf.set("targetType", args[2]);
         conf.set("targetGenre", args[3]);
 
-        // Allows the user the option to add a century or not.
+        // Handling optional arguments:
+        // If no century is given, then -s will be at args[4].
+        // If century is given, then -s will be at args[5].
+        boolean wantsSorting = false;
         if (args.length > 4) {
-            conf.set("targetCentury", args[4]);
+            if (args[4].equals("-s") || args[4].equals("sort")) {
+                // No century provided, just sorting
+                wantsSorting = true;
+            } else {
+                // args[4] is the century
+                conf.set("targetCentury", args[4]);
+                // If there's a fifth argument, it must be -s
+                if (args.length > 5 && (args[5].equals("-s") || args[5].equals("sort"))) {
+                    wantsSorting = true;
+                }
+            }
         }
 
-        Job job = Job.getInstance(conf, "BestYearForGenre");
+	Job job = Job.getInstance(conf, "BestYearForGenre");
         job.setJarByClass(BestYearForMovieGenre.class);
-        job.setMapperClass(Map.class);
-        job.setCombinerClass(Reduce.class);
-        job.setReducerClass(Reduce.class);
-
+        
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(IntWritable.class);
 
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
-        System.exit(job.waitForCompletion(true) ? 0 : 1);
+        boolean jobSuccess = job.waitForCompletion(true);
+
+        if (jobSuccess && wantsSorting) {
+            Path outputFile = new Path(args[1] + "/part-r-00000");
+            FileSystem fs = FileSystem.get(conf);
+
+            List<YearCount> records = new ArrayList<>();
+
+            // Read original output file from HDFS
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(fs.open(outputFile)))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    String[] parts = line.split("\t");
+                    if (parts.length == 2) {
+                        String year = parts[0];
+                        int count = Integer.parseInt(parts[1]);
+                        records.add(new YearCount(year, count));
+                    }
+                }
+            }
+
+            // Sort by count descending
+            Collections.sort(records, new Comparator<YearCount>() {
+                @Override
+                public int compare(YearCount o1, YearCount o2) {
+                    return Integer.compare(o2.count, o1.count);
+                }
+            });
+
+            // Overwrite the existing file
+            try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fs.create(outputFile, true)))) {
+                for (YearCount yc : records) {
+                    bw.write(yc.year + "\t" + yc.count + "\n");
+                }
+            }
+        }
+
+        System.exit(jobSuccess ? 0 : 1);
+    }
+
+    private static class YearCount {
+        String year;
+        int count;
+        YearCount(String year, int count) {
+            this.year = year;
+            this.count = count;
+        }
     }
 }
